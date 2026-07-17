@@ -1,4 +1,4 @@
-name: foyer 
+name: foyer
 channels:
   - conda-forge
 dependencies:
