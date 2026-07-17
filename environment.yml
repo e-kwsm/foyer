@@ -4,11 +4,11 @@ channels:
 dependencies:
   - lark
   - lxml
-  - gmso
-  - numpy>=2.0,<2.3
+  - gmso>=0.16.2
+  - numpy>=2.0,<2.6
   - networkx>=2.5
-  - openmm<8.4
+  - openmm>=8.4
   - parmed>=3.4.3
   - ele
   - requests
-  - python>=3.10,<=3.13
+  - python>=3.11,<=3.14

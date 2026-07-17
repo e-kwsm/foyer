@@ -1163,6 +1163,12 @@ class Forcefield(app.ForceField):
                 )
                 sys.setVirtualSite(index, local_coord_site)
 
+        # Precompute atom classes for reuse by all generators. OpenMM >=8.4
+        # moved this out of the individual force generators into createSystem
+        # and the generators now expect data.atomClasses to be populated.
+        if hasattr(data, "setAtomClasses"):
+            data.setAtomClasses(self)
+
         # Add forces to the System
         for force in self._forces:
             force.createForce(sys, data, nonbondedMethod, nonbondedCutoff, args)
