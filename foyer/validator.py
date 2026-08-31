@@ -1,17 +1,19 @@
 """Validaton of force field XML files."""
 
+import logging
 import os
 from collections import Counter
 from os.path import abspath, join, split
-from warnings import warn
 
 import lark
 import networkx as nx
 from lxml import etree
 from lxml.etree import DocumentInvalid
 
-from foyer.exceptions import ValidationError, ValidationWarning, raise_collected
+from foyer.exceptions import ValidationError, raise_collected
 from foyer.smarts_graph import SMARTSGraph
+
+logger = logging.getLogger(__name__)
 
 
 class Validator(object):
@@ -21,16 +23,12 @@ class Validator(object):
         from foyer.forcefield import preprocess_forcefield_files
 
         try:
-            preprocessed_ff_file_name = preprocess_forcefield_files(
-                [ff_file_name]
-            )
+            preprocessed_ff_file_name = preprocess_forcefield_files([ff_file_name])
 
             ff_tree = etree.parse(preprocessed_ff_file_name[0])
             self.validate_xsd(ff_tree)
 
-            self.atom_type_names = ff_tree.xpath(
-                "/ForceField/AtomTypes/Type/@name"
-            )
+            self.atom_type_names = ff_tree.xpath("/ForceField/AtomTypes/Type/@name")
             self.atom_types = ff_tree.xpath("/ForceField/AtomTypes/Type")
 
             self.validate_class_type_exclusivity(ff_tree)
@@ -53,9 +51,7 @@ class Validator(object):
     def validate_xsd(ff_tree, xsd_file=None):
         """Check consistency with forcefields/ff.xsd."""
         if xsd_file is None:
-            xsd_file = join(
-                split(abspath(__file__))[0], "forcefields", "ff.xsd"
-            )
+            xsd_file = join(split(abspath(__file__))[0], "forcefields", "ff.xsd")
 
         xmlschema_doc = etree.parse(xsd_file)
         xmlschema = etree.XMLSchema(xmlschema_doc)
@@ -72,7 +68,7 @@ class Validator(object):
         def create_error(keyword, message, line):
             atomtype = message[message.find("[") + 1 : message.find("]")]
             error_text = error_texts[keyword].format(atomtype, line)
-            return ValidationError(error_text, ex, line)
+            return ValidationError(error_text, keyword, line)
 
         try:
             xmlschema.assertValid(ff_tree)
@@ -163,7 +159,7 @@ class Validator(object):
         for entry in self.atom_types:
             smarts_string = entry.attrib.get("def")
             if not smarts_string:
-                warn("You have empty smart definition(s)", ValidationWarning)
+                logger.info("You have empty smart definition(s)")
                 continue
             name = entry.attrib["name"]
             if smarts_string is None:
@@ -175,9 +171,7 @@ class Validator(object):
             except lark.ParseError as ex:
                 if " col " in ex.args[0]:
                     column = ex.args[0][ex.args[0].find(" col ") + 5 :].strip()
-                    column = " at character {} of {}".format(
-                        column, smarts_string
-                    )
+                    column = " at character {} of {}".format(column, smarts_string)
                 else:
                     column = ""
 
@@ -198,9 +192,7 @@ class Validator(object):
                 name=name,
                 overrides=entry.attrib.get("overrides"),
             )
-            for atom_expr in nx.get_node_attributes(
-                smarts_graph, name="atom"
-            ).values():
+            for atom_expr in nx.get_node_attributes(smarts_graph, name="atom").values():
                 labels = atom_expr.find_data("has_label")
                 for label in labels:
                     atom_type = label.children[0][1:]
@@ -216,18 +208,14 @@ class Validator(object):
                         errors.append(undefined)
         raise_collected(errors)
         if missing_smarts and debug:
-            warn(
-                "The following atom types do not have smarts definitions: {}".format(
-                    ", ".join(missing_smarts)
-                ),
-                ValidationWarning,
+            logger.info(
+                f"The following atom types do not have smarts definitions: {', '.join(missing_smarts)}"
             )
         if missing_smarts and not debug:
-            warn(
-                "There are {} atom types that are missing a smarts definition. "
+            logger.info(
+                f"There are {len(missing_smarts)} atom types that are missing a smarts definition. "
                 "To view the missing atom types, re-run with debug=True when "
-                "applying the forcefield.".format(len(missing_smarts)),
-                ValidationWarning,
+                "applying the forcefield."
             )
 
     def validate_overrides(self):

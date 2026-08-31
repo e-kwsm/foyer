@@ -46,7 +46,7 @@ class SMARTSGraph(nx.Graph):
         overrides=None,
         typemap=None,
         *args,
-        **kwargs
+        **kwargs,
     ):
         super(SMARTSGraph, self).__init__(*args, **kwargs)
 
@@ -54,6 +54,13 @@ class SMARTSGraph(nx.Graph):
         self.name = name
         self.overrides = overrides
         self.typemap = typemap
+        self._borderDict = {
+            "single_bond": 1.0,
+            "double_bond": 2.0,
+            "triple_bond": 3.0,
+            "aromatic_bond": 1.5,
+            "wildcard_bond": 0.0,
+        }
 
         if parser is None:
             self.ast = SMARTS().parse(smarts_string)
@@ -74,18 +81,30 @@ class SMARTSGraph(nx.Graph):
             self.add_node(n, atom=atom)
             self._atom_indices[id(atom)] = n
 
-    def _add_edges(self, ast_node, trunk=None):
+    def _add_edges(self, ast_node, trunk=None, bond_order=0.0):
         """Add all bonds in the SMARTS string as edges in the graph."""
         atom_indices = self._atom_indices
+
         for ast_child in ast_node.children:
             if ast_child.data == "atom":
                 atom_idx = atom_indices[id(ast_child)]
                 if trunk is not None:
                     trunk_idx = atom_indices[id(trunk)]
-                    self.add_edge(atom_idx, trunk_idx)
+                    bond_data = list(ast_child.find_data("bond_symbol"))
+                    if bond_data:
+                        bond_order = self._borderDict[
+                            bond_data[0].children[0].data.value
+                        ]
+                    self.add_edge(atom_idx, trunk_idx, bond_order=bond_order)
                 trunk = ast_child
             elif ast_child.data == "branch":
-                self._add_edges(ast_child, trunk)
+                bond_data = list(ast_child.find_data("bond_symbol"))
+                if bond_data:
+                    bond_order = self._borderDict[bond_data[0].children[0].data.value]
+                self._add_edges(ast_child, trunk, bond_order=bond_order)
+                bond_order = 0.0
+            elif ast_child.data == "bond_symbol":
+                bond_order = self._borderDict[ast_child.children[0].data.value]
 
     def _add_label_edges(self):
         """Add edges between all atoms with the same atom_label in rings."""
@@ -111,6 +130,19 @@ class SMARTSGraph(nx.Graph):
         bond_partners = host["bond_partners"]
         return self._atom_expr_matches(atom_expr, atom, bond_partners)
 
+    def _edge_match(self, host_edge, pattern_edge):
+        """Determine if two graph edges are equal based on bond orders, used for subgraph_isomorphisms."""
+        # If either edge has no bond type specified, match any bond
+        if not pattern_edge.get("bond_order", 0.0) or not host_edge.get(
+            "bond_order", 0.0
+        ):
+            return True
+
+        pattern_bond_order = pattern_edge["bond_order"]
+        host_bond_order = host_edge.get("bond_order", 1)  # Default to single bond
+
+        return host_bond_order == pattern_bond_order
+
     def _atom_expr_matches(self, atom_expr, atom, bond_partners):
         """Evaluate SMARTS string expressions."""
         if atom_expr.data == "not_expression":
@@ -120,23 +152,17 @@ class SMARTSGraph(nx.Graph):
         elif atom_expr.data in ("and_expression", "weak_and_expression"):
             return self._atom_expr_matches(
                 atom_expr.children[0], atom, bond_partners
-            ) and self._atom_expr_matches(
-                atom_expr.children[1], atom, bond_partners
-            )
+            ) and self._atom_expr_matches(atom_expr.children[1], atom, bond_partners)
         elif atom_expr.data == "or_expression":
             return self._atom_expr_matches(
                 atom_expr.children[0], atom, bond_partners
-            ) or self._atom_expr_matches(
-                atom_expr.children[1], atom, bond_partners
-            )
+            ) or self._atom_expr_matches(atom_expr.children[1], atom, bond_partners)
         elif atom_expr.data == "atom_id":
             return self._atom_id_matches(
                 atom_expr.children[0], atom, bond_partners, self.typemap
             )
         elif atom_expr.data == "atom_symbol":
-            return self._atom_id_matches(
-                atom_expr, atom, bond_partners, self.typemap
-            )
+            return self._atom_id_matches(atom_expr, atom, bond_partners, self.typemap)
         else:
             raise TypeError(
                 "Expected atom_id, atom_symbol, and_expression, "
@@ -162,9 +188,7 @@ class SMARTSGraph(nx.Graph):
             else:
                 return atomic_num == pt.AtomicNum[str(atom_id.children[0])]
         elif atom_id.data == "has_label":
-            label = atom_id.children[0][
-                1:
-            ]  # Strip the % sign from the beginning.
+            label = atom_id.children[0][1:]  # Strip the % sign from the beginning.
             return label in typemap[atom_idx]["whitelist"]
         elif atom_id.data == "neighbor_count":
             return len(bond_partners) == int(atom_id.children[0])
@@ -205,9 +229,7 @@ class SMARTSGraph(nx.Graph):
         """
         # Note: Needs to be updated in sync with the grammar in `smarts.py`.
         ring_tokens = ["ring_size", "ring_count"]
-        has_ring_rules = any(
-            list(self.ast.find_data(token)) for token in ring_tokens
-        )
+        has_ring_rules = any(list(self.ast.find_data(token)) for token in ring_tokens)
         topology_graph.add_bond_partners()
         _prepare_atoms(topology_graph, typemap, compute_cycles=has_ring_rules)
 
@@ -220,9 +242,7 @@ class SMARTSGraph(nx.Graph):
                     element = next(atom.find_data("atom_symbol")).children[0]
                 except IndexError:
                     try:
-                        atomic_num = next(
-                            atom.find_data("atomic_num")
-                        ).children[0]
+                        atomic_num = next(atom.find_data("atomic_num")).children[0]
                         element = pt.Element[int(atomic_num)]
                     except IndexError:
                         element = None
@@ -232,6 +252,7 @@ class SMARTSGraph(nx.Graph):
                 topology_graph,
                 self,
                 node_match=self._node_match,
+                edge_match=self._edge_match,
                 element=element,
                 typemap=typemap,
             )
@@ -252,9 +273,10 @@ class SMARTSGraph(nx.Graph):
 class SMARTSMatcher(isomorphism.vf2userfunc.GraphMatcher):
     """Inherits and implements VF2 for a SMARTSGraph."""
 
-    def __init__(self, G1, G2, node_match, element, typemap):
-        super(SMARTSMatcher, self).__init__(G1, G2, node_match)
+    def __init__(self, G1, G2, node_match, edge_match, element, typemap):
+        super(SMARTSMatcher, self).__init__(G1, G2, node_match, edge_match)
         self.element = element
+        self.typemap = typemap
         # TODO: Parse out nodes containing other elements (see git history)
         self.valid_nodes = G1.nodes()
 
@@ -275,9 +297,7 @@ class SMARTSMatcher(isomorphism.vf2userfunc.GraphMatcher):
         else:
             # First we determine the candidate node for G2
             other_node = min(G2_nodes - set(self.core_2))
-            host_nodes = (
-                self.valid_nodes if other_node == 0 else self.G1.nodes()
-            )
+            host_nodes = self.valid_nodes if other_node == 0 else self.G1.nodes()
             for node in host_nodes:
                 if node not in self.core_1:
                     yield node, other_node
@@ -326,23 +346,17 @@ def _find_chordless_cycles(bond_graph, max_cycle_size):
                 """
                 new_possible_rings = []
                 for possible_ring in possible_rings:
-                    next_neighbors = list(
-                        bond_graph.neighbors(possible_ring[-1])
-                    )
+                    next_neighbors = list(bond_graph.neighbors(possible_ring[-1]))
                     for next_neighbor in next_neighbors:
                         if next_neighbor != possible_ring[-2]:
-                            new_possible_rings.append(
-                                possible_ring + [next_neighbor]
-                            )
+                            new_possible_rings.append(possible_ring + [next_neighbor])
                 possible_rings = new_possible_rings
 
                 for possible_ring in possible_rings:
                     if bond_graph.has_edge(possible_ring[-1], last_node):
                         if any(
                             [
-                                bond_graph.has_edge(
-                                    possible_ring[-1], internal_node
-                                )
+                                bond_graph.has_edge(possible_ring[-1], internal_node)
                                 for internal_node in possible_ring[1:-2]
                             ]
                         ):
@@ -351,10 +365,7 @@ def _find_chordless_cycles(bond_graph, max_cycle_size):
                             cycles[i].append(possible_ring)
                             connected = True
 
-                if (
-                    not possible_rings
-                    or len(possible_rings[0]) == max_cycle_size
-                ):
+                if not possible_rings or len(possible_rings[0]) == max_cycle_size:
                     break
 
     return cycles

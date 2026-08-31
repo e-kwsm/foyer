@@ -1,18 +1,16 @@
 """Support user-created forcefield XML files."""
 
 import glob
+import importlib.resources as resources
 import os
-import warnings
-
-from pkg_resources import resource_filename
 
 from foyer import Forcefield
-from foyer.validator import ValidationWarning
 
 
 def get_ff_path():
     """Return path to forcefield locations."""
-    return [resource_filename("foyer", "forcefields")]
+    ff_dir = resources.files("foyer").joinpath("forcefields")
+    return [ff_dir]
 
 
 def get_forcefield_paths(forcefield_name=None):
@@ -39,13 +37,9 @@ def get_forcefield(name=None):
 
 def load_OPLSAA():
     """Load internal forcefield XML for the packaged OPLS-AA forcefield."""
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=ValidationWarning)
-        return get_forcefield(name="oplsaa")
+    return get_forcefield(name="oplsaa")
 
 
 def load_TRAPPE_UA():
     """Load internal forcefield XML for the packaged TRAPPE-UA forcefield."""
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=UserWarning)
-        return get_forcefield(name="trappe-ua")
+    return get_forcefield(name="trappe-ua")

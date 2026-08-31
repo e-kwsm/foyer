@@ -18,6 +18,8 @@ import os
 import pathlib
 import sys
 
+import sphinx_rtd_theme
+
 sys.path.insert(0, os.path.abspath("../.."))
 sys.path.insert(0, os.path.abspath("sphinxext"))
 
@@ -25,15 +27,13 @@ base_path = pathlib.Path(__file__).parent
 os.system("python {} --name".format((base_path / "../../setup.py").resolve()))
 
 
-import foyer
-
 # -- Project information -----------------------------------------------------
 
 project = "foyer"
 copyright = "2014-2020, Vanderbilt University"
 
 # The short X.Y version
-version = "0.12.1"
+version = "1.2.0"
 # The full version, including alpha/beta/rc tags
 release = version
 
@@ -107,10 +107,10 @@ _python_doc_base = "http://docs.python.org/3.7"
 
 
 intersphinx_mapping = {
-    _python_doc_base: None,
-    "http://docs.scipy.org/doc/numpy": None,
-    "http://docs.scipy.org/doc/scipy/reference": None,
-    "http://scikit-learn.org/stable": None,
+    "python": ("https://docs.python.org/3.11", None),
+    "numpy": ("https://numpy.org/doc/stable", None),
+    "scipy": ("https://docs.scipy.org/doc/scipy/reference", None),
+    "scikit-learn": ("https://scikit-learn.org/stable", None),
 }
 
 # Add any paths that contain templates here, relative to this directory.
@@ -147,7 +147,6 @@ pygments_style = "sphinx"
 # a list of builtin themes.
 #
 # html_theme = 'alabaster'
-import sphinx_rtd_theme
 
 html_theme = "sphinx_rtd_theme"
 hhtml_theme_path = [sphinx_rtd_theme.get_html_theme_path()]

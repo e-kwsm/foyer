@@ -81,9 +81,7 @@ class TestSMARTS(BaseTest):
             for atom in not_ring_mol2.atoms
         }
 
-        rule_match(
-            not_ring_mol2_graph, typemap, "[#6]1[#6][#6][#6][#6][#6]1", False
-        )
+        rule_match(not_ring_mol2_graph, typemap, "[#6]1[#6][#6][#6][#6][#6]1", False)
 
     def test_fused_ring(self, smarts_parser):
         mol2 = pmd.load_file(get_fn("fused.mol2"), structure=True)
@@ -248,11 +246,11 @@ class TestSMARTS(BaseTest):
     def test_optional_names_bad_syntax(self):
         bad_optional_names = ["_C", "XXX", "C"]
         with pytest.raises(FoyerError):
-            S = SMARTS(optional_names=bad_optional_names)
+            SMARTS(optional_names=bad_optional_names)
 
     def test_optional_names_good_syntax(self):
         good_optional_names = ["_C", "_CH2", "_CH"]
-        S = SMARTS(optional_names=good_optional_names)
+        SMARTS(optional_names=good_optional_names)
 
     def test_optional_name_parser(self):
         optional_names = ["_C", "_CH2", "_CH"]
@@ -261,3 +259,27 @@ class TestSMARTS(BaseTest):
         symbols = [a.children[0] for a in ast.find_data("atom_symbol")]
         for name in optional_names:
             assert name in symbols
+
+    def test_bond_order(self, rule_match_count):
+        import mbuild as mb
+
+        smiles_string = "C=CC"  # propene
+        cpd = mb.load(smiles_string, smiles=True)
+        structure = cpd.to_parmed()
+        structure.bonds[0].order = 2.0
+
+        typemap = {
+            atom.idx: {"whitelist": set(), "blacklist": set(), "atomtype": None}
+            for atom in structure.atoms
+        }
+
+        mol2_graph = TopologyGraph.from_parmed(structure)
+
+        checks = {
+            "[C](=C)(H)(H)": 1,
+            "[C](-C)=C": 1,
+            "[C](-C)(H)(H)H": 1,
+        }
+
+        for smart, result in checks.items():
+            rule_match_count(mol2_graph, typemap, smart, result)

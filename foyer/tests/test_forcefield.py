@@ -1,5 +1,7 @@
 import difflib
 import glob
+import importlib.resources as resources
+import logging
 import os
 from typing import List
 
@@ -7,13 +9,11 @@ import parmed as pmd
 import pytest
 from lxml import etree as ET
 from parmed.gromacs.gromacstop import _Defaults
-from pkg_resources import resource_filename
 
 from foyer import Forcefield, forcefields
 from foyer.exceptions import (
     FoyerError,
     UnimplementedCombinationRuleError,
-    ValidationWarning,
 )
 from foyer.forcefield import (
     _check_independent_residues,
@@ -23,7 +23,7 @@ from foyer.tests.base_test import BaseTest
 from foyer.tests.utils import get_fn, register_mock_request
 from foyer.utils.io import has_mbuild
 
-FF_DIR = resource_filename("foyer", "forcefields")
+FF_DIR = resources.files("foyer").joinpath("forcefields")
 FORCEFIELDS = glob.glob(os.path.join(FF_DIR, "xml/*.xml"))
 
 RESPONSE_BIB_ETHANE_JA962170 = """@article{Jorgensen_1996,
@@ -66,7 +66,7 @@ class TestForcefield(BaseTest):
 
     def test_duplicate_type_definitions(self):
         with pytest.raises(ValueError):
-            ff4 = Forcefield(name="oplsaa", forcefield_files=FORCEFIELDS)
+            Forcefield(name="oplsaa", forcefield_files=FORCEFIELDS)
 
     def test_missing_type_definitions(self):
         with pytest.raises(FoyerError):
@@ -132,14 +132,12 @@ class TestForcefield(BaseTest):
             text=RESPONSE_BIB_ETHANE_JA962170,
         )
         mol2 = mb.load(get_fn("ethane.mol2"))
-        ethane = oplsaa.apply(mol2, references_file="ethane.bib")
+        oplsaa.apply(mol2, references_file="ethane.bib")
         assert os.path.isfile("ethane.bib")
         with open(get_fn("ethane.bib")) as file1:
             with open("ethane.bib") as file2:
                 diff = list(
-                    difflib.unified_diff(
-                        file1.readlines(), file2.readlines(), n=0
-                    )
+                    difflib.unified_diff(file1.readlines(), file2.readlines(), n=0)
                 )
         assert not diff
 
@@ -163,19 +161,17 @@ class TestForcefield(BaseTest):
         )
         mol2 = mb.load(get_fn("ethane.mol2"))
         oplsaa = Forcefield(forcefield_files=get_fn("refs-multi.xml"))
-        ethane = oplsaa.apply(mol2, references_file="ethane-multi.bib")
+        oplsaa.apply(mol2, references_file="ethane-multi.bib")
         assert os.path.isfile("ethane-multi.bib")
         with open(get_fn("ethane-multi.bib")) as file1:
             with open("ethane-multi.bib") as file2:
                 diff = list(
-                    difflib.unified_diff(
-                        file1.readlines(), file2.readlines(), n=0
-                    )
+                    difflib.unified_diff(file1.readlines(), file2.readlines(), n=0)
                 )
         assert not diff
 
     @pytest.mark.skipif(not has_mbuild, reason="mbuild is not installed")
-    def test_write_bad_ref(self, requests_mock):
+    def test_write_bad_ref(self, requests_mock, caplog):
         import mbuild as mb
 
         register_mock_request(
@@ -187,8 +183,11 @@ class TestForcefield(BaseTest):
         )
         mol2 = mb.load(get_fn("ethane.mol2"))
         oplsaa = Forcefield(forcefield_files=get_fn("refs-bad.xml"))
-        with pytest.warns(UserWarning):
-            ethane = oplsaa.apply(mol2, references_file="ethane.bib")
+        with caplog.at_level(logging.INFO, logger="foyer"):
+            oplsaa.apply(mol2, references_file="ethane.bib")
+        assert (
+            "Could not get ref for doi 10.1021/garbage_bad_44444444jjjj" in caplog.text
+        )
 
     def test_preserve_resname(self, oplsaa):
         untyped_ethane = pmd.load_file(get_fn("ethane.mol2"), structure=True)
@@ -211,9 +210,7 @@ class TestForcefield(BaseTest):
         import mbuild as mb
 
         mol2 = mb.load(get_fn("ethane_customtype.pdb"))
-        customtype_ff = Forcefield(
-            forcefield_files=get_fn("validate_customtypes.xml")
-        )
+        customtype_ff = Forcefield(forcefield_files=get_fn("validate_customtypes.xml"))
         ethane = customtype_ff.apply(mol2)
 
         assert sum((1 for at in ethane.atoms if at.type == "C3")) == 2
@@ -227,12 +224,8 @@ class TestForcefield(BaseTest):
 
     def test_improper_dihedral(self):
         untyped_benzene = pmd.load_file(get_fn("benzene.mol2"), structure=True)
-        ff_improper = Forcefield(
-            forcefield_files=get_fn("improper_dihedral.xml")
-        )
-        benzene = ff_improper.apply(
-            untyped_benzene, assert_dihedral_params=False
-        )
+        ff_improper = Forcefield(forcefield_files=get_fn("improper_dihedral.xml"))
+        benzene = ff_improper.apply(untyped_benzene, assert_dihedral_params=False)
         assert len(benzene.dihedrals) == 18
         assert len([dih for dih in benzene.dihedrals if dih.improper]) == 6
         assert len([dih for dih in benzene.dihedrals if not dih.improper]) == 12
@@ -300,9 +293,7 @@ class TestForcefield(BaseTest):
         struct_without = ethane
         oplsaa._apply_typemap(struct_with, map_with)
         oplsaa._apply_typemap(struct_without, map_without)
-        for atom_with, atom_without in zip(
-            struct_with.atoms, struct_without.atoms
-        ):
+        for atom_with, atom_without in zip(struct_with.atoms, struct_without.atoms):
             assert atom_with.type == atom_without.type
             b_with = atom_with.bond_partners
             b_without = atom_without.bond_partners
@@ -352,22 +343,12 @@ class TestForcefield(BaseTest):
 
         assert (
             len(
-                [
-                    bond
-                    for bond in typed_ethane.bonds
-                    if round(bond.type.req, 2) == 1.15
-                ]
+                [bond for bond in typed_ethane.bonds if round(bond.type.req, 2) == 1.15]
             )
             == 6
         )
         assert (
-            len(
-                [
-                    bond
-                    for bond in typed_ethane.bonds
-                    if round(bond.type.req, 2) == 1.6
-                ]
-            )
+            len([bond for bond in typed_ethane.bonds if round(bond.type.req, 2) == 1.6])
             == 1
         )
         assert (
@@ -392,11 +373,7 @@ class TestForcefield(BaseTest):
         )
         assert (
             len(
-                [
-                    rb
-                    for rb in typed_ethane.rb_torsions
-                    if round(rb.type.c0, 3) == 0.287
-                ]
+                [rb for rb in typed_ethane.rb_torsions if round(rb.type.c0, 3) == 0.287]
             )
             == 9
         )
@@ -409,7 +386,7 @@ class TestForcefield(BaseTest):
             ("ethane-dihedral-typo.xml", {"assert_dihedral_params": False}),
         ],
     )
-    def test_missing_topo_params(self, ff_filename, kwargs):
+    def test_missing_topo_params(self, ff_filename, kwargs, caplog):
         """Test that the user is notified if not all topology parameters are found."""
         import mbuild as mb
 
@@ -417,8 +394,16 @@ class TestForcefield(BaseTest):
         oplsaa_with_typo = Forcefield(forcefield_files=get_fn(ff_filename))
         with pytest.raises(Exception):
             ethane = oplsaa_with_typo.apply(ethane)
-        with pytest.warns(UserWarning):
+        with caplog.at_level(logging.INFO, logger="foyer"):
             ethane = oplsaa_with_typo.apply(ethane, **kwargs)
+        if "angle" in list(kwargs.keys())[0]:
+            assert "Parameters have not been assigned to all angles" in caplog.text
+        else:  # dihedrals missing
+            assert (
+                "Parameters have not been assigned to all proper dihedrals"
+                in caplog.text
+            )
+        caplog.clear()
 
     @pytest.mark.skipif(not has_mbuild, reason="mbuild is not installed")
     def test_overrides_space(self):
@@ -430,15 +415,18 @@ class TestForcefield(BaseTest):
         assert typed_ethane.atoms[0].type == "CT3"
 
     @pytest.mark.skipif(not has_mbuild, reason="mbuild is not installed")
-    def test_allow_empty_def(self):
+    def test_allow_empty_def(self, caplog):
         import mbuild as mb
 
         ethane = mb.load(get_fn("ethane.mol2"))
-        with pytest.warns(ValidationWarning):
+        with caplog.at_level(logging.INFO, logger="foyer"):
             ff = Forcefield(forcefield_files=get_fn("empty_def.xml"))
+        assert "You have empty smart definition(s)" in caplog.text
+        caplog.clear()
 
-        with pytest.warns(UserWarning):
+        with caplog.at_level(logging.INFO, logger="foyer"):
             typed = ff.apply(ethane)
+        assert "Missing lj14scale or coulomb14scale" in caplog.text
         assert typed.defaults is None
 
     @pytest.mark.skipif(not has_mbuild, reason="mbuild is not installed")
@@ -458,9 +446,7 @@ class TestForcefield(BaseTest):
 
         with pytest.raises(Exception):
             ff.apply(derponium)
-        thing = ff.apply(
-            derponium, assert_bond_params=False, assert_angle_params=False
-        )
+        thing = ff.apply(derponium, assert_bond_params=False, assert_angle_params=False)
         assert any(b.type is None for b in thing.bonds)
 
     def test_apply_subfuncs(self, oplsaa):
@@ -490,12 +476,16 @@ class TestForcefield(BaseTest):
             assert ang1.type == ang2.type
 
     @pytest.mark.skipif(not has_mbuild, reason="mbuild is not installed")
-    def test_non_zero_charge(self, oplsaa):
+    def test_non_zero_charge(self, oplsaa, caplog):
         import mbuild as mb
 
         compound = mb.load("C1=CC=C2C(=C1)C(C3=CC=CC=C3O2)C(=O)O", smiles=True)
-        with pytest.warns(UserWarning):
+        with caplog.at_level(logging.INFO, logger="foyer"):
             oplsaa.apply(compound, assert_dihedral_params=False)
+        assert (
+            "Parametrized structure has non-zero charge.Structure's total charge: 0.05"
+            in caplog.text
+        )
 
     @pytest.mark.parametrize("filename", ["ethane.mol2", "benzene.mol2"])
     def test_write_xml(self, filename, oplsaa):
@@ -518,9 +508,7 @@ class TestForcefield(BaseTest):
         for adj in typed.adjusts:
             type1 = adj.atom1.atom_type
             type2 = adj.atom1.atom_type
-            sigma_factor_pre = adj.type.sigma / (
-                (type1.sigma + type2.sigma) / 2
-            )
+            sigma_factor_pre = adj.type.sigma / ((type1.sigma + type2.sigma) / 2)
             epsilon_factor_pre = adj.type.epsilon / (
                 (type1.epsilon * type2.epsilon) ** 0.5
             )
@@ -528,9 +516,7 @@ class TestForcefield(BaseTest):
         for adj in typed_by_partial.adjusts:
             type1 = adj.atom1.atom_type
             type2 = adj.atom1.atom_type
-            sigma_factor_post = adj.type.sigma / (
-                (type1.sigma + type2.sigma) / 2
-            )
+            sigma_factor_post = adj.type.sigma / ((type1.sigma + type2.sigma) / 2)
             epsilon_factor_post = adj.type.epsilon / (
                 (type1.epsilon * type2.epsilon) ** 0.5
             )
@@ -543,18 +529,14 @@ class TestForcefield(BaseTest):
         oplsaa = Forcefield(get_fn("oplsaa-periodic.xml"))
         typed = oplsaa.apply(mol)
 
-        typed.write_foyer(
-            filename="opls-snippet.xml", forcefield=oplsaa, unique=True
-        )
+        typed.write_foyer(filename="opls-snippet.xml", forcefield=oplsaa, unique=True)
         oplsaa_partial = Forcefield("opls-snippet.xml")
         typed_by_partial = oplsaa_partial.apply(mol)
 
         for adj in typed.adjusts:
             type1 = adj.atom1.atom_type
             type2 = adj.atom1.atom_type
-            sigma_factor_pre = adj.type.sigma / (
-                (type1.sigma + type2.sigma) / 2
-            )
+            sigma_factor_pre = adj.type.sigma / ((type1.sigma + type2.sigma) / 2)
             epsilon_factor_pre = adj.type.epsilon / (
                 (type1.epsilon * type2.epsilon) ** 0.5
             )
@@ -562,9 +544,7 @@ class TestForcefield(BaseTest):
         for adj in typed_by_partial.adjusts:
             type1 = adj.atom1.atom_type
             type2 = adj.atom1.atom_type
-            sigma_factor_post = adj.type.sigma / (
-                (type1.sigma + type2.sigma) / 2
-            )
+            sigma_factor_post = adj.type.sigma / ((type1.sigma + type2.sigma) / 2)
             epsilon_factor_post = adj.type.epsilon / (
                 (type1.epsilon * type2.epsilon) ** 0.5
             )
@@ -575,9 +555,7 @@ class TestForcefield(BaseTest):
     @pytest.mark.parametrize("filename", ["ethane.mol2", "benzene.mol2"])
     def test_write_xml_multiple_periodictorsions(self, filename):
         cmpd = pmd.load_file(get_fn(filename), structure=True)
-        ff = Forcefield(
-            forcefield_files=get_fn("oplsaa_multiperiodicitytorsion.xml")
-        )
+        ff = Forcefield(forcefield_files=get_fn("oplsaa_multiperiodicitytorsion.xml"))
         typed_struc = ff.apply(cmpd, assert_dihedral_params=False)
         typed_struc.write_foyer(
             filename="multi-periodictorsions.xml", forcefield=ff, unique=True
@@ -606,15 +584,13 @@ class TestForcefield(BaseTest):
         typed = ff.apply(mol)
         typed.write_foyer(filename="snippet.xml", forcefield=ff, unique=True)
 
-        generated_ff = Forcefield("snippet.xml")
+        Forcefield("snippet.xml")
 
     def test_write_xml_overrides(self, oplsaa):
         # Test xml_writer new overrides and comments features
         mol = pmd.load_file(get_fn("styrene.mol2"), structure=True)
         typed = oplsaa.apply(mol, assert_dihedral_params=False)
-        typed.write_foyer(
-            filename="opls-styrene.xml", forcefield=oplsaa, unique=True
-        )
+        typed.write_foyer(filename="opls-styrene.xml", forcefield=oplsaa, unique=True)
         styrene = ET.parse("opls-styrene.xml")
         atom_types = styrene.getroot().find("AtomTypes").findall("Type")
         for item in atom_types:
@@ -637,9 +613,7 @@ class TestForcefield(BaseTest):
         assert lj_ff.version == "0.4.1"
         assert lj_ff.name == "LJ"
 
-        lj_ff = Forcefield(
-            forcefield_files=[get_fn("lj.xml"), get_fn("lj2.xml")]
-        )
+        lj_ff = Forcefield(forcefield_files=[get_fn("lj.xml"), get_fn("lj2.xml")])
         assert lj_ff.version == ["0.4.1", "4.8.2"]
         assert lj_ff.name == ["LJ", "JL"]
 
@@ -649,28 +623,24 @@ class TestForcefield(BaseTest):
         assert from_xml_ff.name == "LJ"
 
     def test_load_metadata_list_xml(self):
-        from_xml_ff = Forcefield(
-            forcefield_files=[get_fn("lj.xml"), get_fn("lj2.xml")]
-        )
+        from_xml_ff = Forcefield(forcefield_files=[get_fn("lj.xml"), get_fn("lj2.xml")])
         assert isinstance(from_xml_ff.version, List)
         assert isinstance(from_xml_ff.name, List)
         assert all([x in from_xml_ff.version for x in ["0.4.1", "4.8.2"]])
         assert all([x in from_xml_ff.name for x in ["JL", "LJ"]])
 
         with pytest.raises(FoyerError):
-            mismatch_comb_rule = Forcefield(
-                forcefield_files=[get_fn("lj.xml"), get_fn("lj3.xml")]
-            )
+            Forcefield(forcefield_files=[get_fn("lj.xml"), get_fn("lj3.xml")])
 
     def test_load_metadata_from_internal_forcefield_plugin_loader(self):
         from_xml_ff = forcefields.load_OPLSAA()
-        assert from_xml_ff.version == "0.0.3"
+        assert from_xml_ff.version == "0.1.0"
         assert from_xml_ff.name == "OPLS-AA"
         assert from_xml_ff.combining_rule == "geometric"
 
     def test_load_metadata_from_internal_name(self):
         from_xml_ff = Forcefield(name="oplsaa")
-        assert from_xml_ff.version == "0.0.3"
+        assert from_xml_ff.version == "0.1.0"
         assert from_xml_ff.name == "OPLS-AA"
         assert from_xml_ff.combining_rule == "geometric"
 
@@ -684,7 +654,7 @@ class TestForcefield(BaseTest):
         mol1.name = "CCC"
         mol2.name = "COC"
 
-        box = mb.fill_box([mol1, mol2], n_compounds=[2, 2], density=700)
+        box = mb.fill_box([mol1, mol2], n_compounds=[2, 2], overlap=0.01, density=700)
 
         all_substructures = []
         structure = box.to_parmed(residues=["CCC", "COC"])
@@ -744,9 +714,7 @@ class TestForcefield(BaseTest):
         ],
     )
     @pytest.mark.skipif(not has_mbuild, reason="mbuild is not installed")
-    def test_combining_rule(
-        self, ff_name, expected_combining_rule, expected_14_sigma
-    ):
+    def test_combining_rule(self, ff_name, expected_combining_rule, expected_14_sigma):
         import mbuild as mb
 
         ff = Forcefield(get_fn(ff_name))
@@ -763,3 +731,36 @@ class TestForcefield(BaseTest):
         found_14_sigma = adj.type.sigma
 
         assert abs(found_14_sigma - expected_14_sigma) < 1e-10
+
+    def test_load_bond_orders(self):
+        import mbuild as mb
+
+        ff = Forcefield(get_fn("bond_orders.xml"))
+
+        smiles_string = "C=C"  # ethene
+        cpd = mb.load(smiles_string, smiles=True)
+        structure = cpd.to_parmed()
+        structure.bonds[
+            0
+        ].order = 2.0  # manually set bond order until mbuild #1274 is merged
+        pmd_obj = ff.apply(structure)
+        assert "CDouble" == pmd_obj.atoms[0].atom_type.name
+
+        smiles_string = "CC=CC#C"  # all carbon types
+        cpd = mb.load(smiles_string, smiles=True)
+        structure = cpd.to_parmed()
+        structure.bonds[4].order = 2.0  # manually set
+        structure.bonds[8].order = 3.0  # manually set
+        pmd_obj = ff.apply(structure)
+        atypes = ["CSingle", "CDouble", "CDouble", "CTriple", "CTriple"]
+        for site, atype in zip(pmd_obj.atoms, atypes):
+            assert site.atom_type.name == atype
+
+        smiles_string = "C1=CC=CC=C1"  # benzene
+        cpd = mb.load(smiles_string, smiles=True)
+        structure = cpd.to_parmed()
+        structure.bonds[0].order = 1.5  # manually set
+        for i in range(5):
+            structure.bonds[int(2 * i + 1)].order = 1.5  # manually set
+        pmd_obj = ff.apply(structure)
+        assert "CAromatic" == pmd_obj.atoms[0].atom_type.name
